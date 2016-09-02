@@ -62,7 +62,8 @@ namespace {
 			LiveStacks *lss;
 			int k;
 
-			RegAllocGraphColoring() : MachineFunctionPass(ID){
+			RegAllocGraphColoring() : MachineFunctionPass(ID)
+			{
 				initializeSlotIndexesPass(*PassRegistry::getPassRegistry());
 				initializeLiveIntervalsPass(*PassRegistry::getPassRegistry());
 				initializeRegisterCoalescerAnalysisGroup(*PassRegistry::getPassRegistry());
@@ -73,7 +74,8 @@ namespace {
 				initializeStrongPHIEliminationPass(*PassRegistry::getPassRegistry());
 			}
 
-			virtual const char *getPassName() const{
+			virtual const char *getPassName() const
+			{
 				return "Graph Coloring Register Allocator";
 			}
 			virtual void getAnalysisUsage(AnalysisUsage &AU) const 
@@ -249,7 +251,8 @@ void RegAllocGraphColoring::addStackInterval(const LiveInterval *spilled,
 }
 
 //Spills virtual register
-bool RegAllocGraphColoring::SpillIt(unsigned v_reg){
+bool RegAllocGraphColoring::SpillIt(unsigned v_reg)
+{
 
 	const LiveInterval* spillInterval = &LI->getInterval(v_reg);
 	SmallVector<LiveInterval*, 8> spillIs;
@@ -340,7 +343,8 @@ bool RegAllocGraphColoring::allocateRegisters()
 }
 
 
-void RegAllocGraphColoring::dumpPass( ){
+void RegAllocGraphColoring::dumpPass( )
+{
 	for (MachineFunction::iterator mbbItr = MF->begin(), mbbEnd = MF->end();
 			mbbItr != mbbEnd; ++mbbItr) 
 	{
