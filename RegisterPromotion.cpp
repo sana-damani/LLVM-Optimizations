@@ -358,7 +358,7 @@ void RegPromotion::replaceLoadsByCopies(Loop* L)
 			}
 	
 		}
-  }
+	}
 
 	//tail: insert stores
 	SmallVectorImpl<BasicBlock*> tailBlocks(0);
