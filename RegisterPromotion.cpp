@@ -16,7 +16,7 @@ using namespace llvm;
 using namespace std;
 
 STATISTIC(NumLoadsHoisted, "Number of loads hoisted");
-STATISTIC(NumStoresSunked, "Number of stores sunked");
+STATISTIC(NumStoresSunk, "Number of stores sunked");
 
 namespace {
 	struct RegPromotion : public FunctionPass
@@ -78,12 +78,14 @@ bool RegPromotion::findLoadsAndStoresAdded(Loop *L)
 	{
 		for(BasicBlock::iterator j = (*i)->begin(); j != (*i)->end(); j++)
 		{
-			if(isa<CallInst>(j) || (isa<LoadInst>(j) && (!isa<GlobalVariable>(j->getOperand(0)) && !isa<GetElementPtrInst>(j->getOperand(0))))){
+			if(isa<CallInst>(j) || (isa<LoadInst>(j) && (!isa<GlobalVariable>(j->getOperand(0)) && !isa<GetElementPtrInst>(j->getOperand(0)))))
+			{
 				return false;
 			}
 			else if(isa<LoadInst>(j) && !(dyn_cast<LoadInst>(j)->isVolatile()))
 			{
-				if(!isa<GetElementPtrInst>(j->getOperand(0))){
+				if(!isa<GetElementPtrInst>(j->getOperand(0)))
+				{
 					LoadsAdded.insert(pair<Value*, Instruction*>(j->getOperand(0), insertLoadBefore));	
 					MemoryObjects.insert(j->getOperand(0));
 					Alignment[j->getOperand(0)] = dyn_cast<LoadInst>(j)->getAlignment();
@@ -98,24 +100,25 @@ bool RegPromotion::findLoadsAndStoresAdded(Loop *L)
 				return false;
 			if(isa<StoreInst>(j) && !(dyn_cast<StoreInst>(j)->isVolatile()))
 			{
-				if(!isa<GetElementPtrInst>(j->getOperand(1))){
+				if(!isa<GetElementPtrInst>(j->getOperand(1)))
+				{
 					for(vector<Instruction*>::iterator i = insertStoreBefore.begin(); i != insertStoreBefore.end(); i++)
 					{
 						StoresAdded.insert(pair<Value*, Instruction*>(j->getOperand(1), *i));
 					}
-					if(MemoryObjects.count(j->getOperand(1)) == 0){
+					if(MemoryObjects.count(j->getOperand(1)) == 0)
+					{
 						LoadsAdded.insert(pair<Value*, Instruction*>(j->getOperand(1), preheader));
 						MemoryObjects.insert(j->getOperand(1));
 						Alignment[j->getOperand(1)] = (dyn_cast<StoreInst>(j))->getAlignment();
 					}
-                    deadStores.insert(j);
-                }
-            }
-        }
-
+	          		deadStores.insert(j);
+	          	}
+	       	}
+	    }
 	}
 
-	NumStoresSunked += StoresAdded.size();
+	NumStoresSunk += StoresAdded.size();
 	return true;
 }
 
@@ -136,61 +139,67 @@ void RegPromotion::insertLoads()
 //create new phi or replace if it already exists
 void RegPromotion::insertPhi(BasicBlock* BB)
 {
-  Value *v;
-  for(set<Value*>::iterator si = MemoryObjects.begin(); si != MemoryObjects.end(); si++)
-  {
-	v = *si;
-	if(IN_BBVRMap[BB][v].size() > 1)
+	Value *v;
+	for(set<Value*>::iterator si = MemoryObjects.begin(); si != MemoryObjects.end(); si++)
 	{
-	  //replace if exists:-
-	  if(NewPhiInstructionsAdded[BB].count(v))
-	  {
-		PHINode* phi = NewPhiInstructionsAdded[BB][v];
-		for(set<Value*>::iterator si = IN_BBVRMap[BB][v].begin(); si != IN_BBVRMap[BB][v].end(); si++ )
+		v = *si;
+		if(IN_BBVRMap[BB][v].size() > 1)
 		{
-		  for(set<BasicBlock*>::iterator bi = ComesFrom[BB][*si].begin(); bi != ComesFrom[BB][*si].end(); bi++)
-		  {
-			if(phi->getIncomingValueForBlock(*bi) != *si)
-			{
-			  if(phi->getBasicBlockIndex(*bi) != -1)
+			  //replace if exists:-
+			  if(NewPhiInstructionsAdded[BB].count(v))
 			  {
-				phi->removeIncomingValue(*bi, false);
-				phi->addIncoming(*si, *bi);
+					PHINode* phi = NewPhiInstructionsAdded[BB][v];
+					for(set<Value*>::iterator si = IN_BBVRMap[BB][v].begin(); si != IN_BBVRMap[BB][v].end(); si++)
+					{
+					  for(set<BasicBlock*>::iterator bi = ComesFrom[BB][*si].begin(); bi != ComesFrom[BB][*si].end(); bi++)
+					  {
+							if(phi->getIncomingValueForBlock(*bi) != *si)
+							{
+							  if(phi->getBasicBlockIndex(*bi) != -1)
+							  {
+									phi->removeIncomingValue(*bi, false);
+									phi->addIncoming(*si, *bi);
+							  }
+							  else 
+								{
+									phi->addIncoming(*si, *bi);
+								}
+							}
+					  }
+					}
+					OUT_BBVRMap[BB][v].clear();
+					OUT_BBVRMap[BB][v].insert(phi);
 			  }
 			  else
-				phi->addIncoming(*si, *bi);
-			}
-		  }
+			  {
+					//create new:-
+					Twine name = v->getName();
+					Instruction *insertBefore = BB->begin();
+					PHINode *phi = PHINode::Create((*IN_BBVRMap[BB][v].begin())->getType(), name, insertBefore);
+					//set incoming values:
+					for(set<Value*>::iterator si = IN_BBVRMap[BB][v].begin(); si != IN_BBVRMap[BB][v].end(); si++)
+					{
+					  	for(set<BasicBlock*>::iterator bi = ComesFrom[BB][*si].begin(); bi != ComesFrom[BB][*si].end(); bi++)
+					  	{
+								if(phi->getBasicBlockIndex(*bi) != -1)
+								{
+						  		phi->removeIncomingValue(*bi, false);
+						  		phi->addIncoming(*si, *bi);
+								}
+								else
+								{
+								  phi->addIncoming(*si, *bi);
+								}
+					  	}
+					}
+					NewPhiInstructionsAdded[BB][v] = phi;
+					//kill
+					OUT_BBVRMap[BB][v].clear();
+					//gen
+					OUT_BBVRMap[BB][v].insert(phi);
+			  }
 		}
-		OUT_BBVRMap[BB][v].clear();
-		OUT_BBVRMap[BB][v].insert(phi);
-	  }
-	  else
-	  {
-		//create new:-
-		Twine name = v->getName();
-		Instruction *insertBefore = BB->begin();
-		PHINode *phi = PHINode::Create((*IN_BBVRMap[BB][v].begin())->getType(), name, insertBefore);
-		//set incoming values:
-		for(set<Value*>::iterator si = IN_BBVRMap[BB][v].begin(); si != IN_BBVRMap[BB][v].end(); si++ )
-		  for(set<BasicBlock*>::iterator bi = ComesFrom[BB][*si].begin(); bi != ComesFrom[BB][*si].end(); bi++)
-		  {
-			if(phi->getBasicBlockIndex(*bi) != -1)
-			{
-			  phi->removeIncomingValue(*bi, false);
-			  phi->addIncoming(*si, *bi);
-			}
-			else
-			  phi->addIncoming(*si, *bi);
-		  }
-		NewPhiInstructionsAdded[BB][v] = phi;
-		//kill
-		OUT_BBVRMap[BB][v].clear();
-		//gen
-		OUT_BBVRMap[BB][v].insert(phi);
-	  }
-	}
-  }
+  	}
 }
 
 //computes IN(BasicBlock) = union(OUT(predecessors of the basic block))
@@ -209,7 +218,6 @@ void RegPromotion::computeIN(BasicBlock* BB)
 		//for each predecessor
 		for(pred_iterator pi = pred_begin(BB); pi != pred_end(BB); ++pi)
 		{
-
 			for(set<Value*>::iterator i = OUT_BBVRMap[*pi][v].begin(); i != OUT_BBVRMap[*pi][v].end(); i++)
 			{
 				unionSet.insert(*i);
@@ -223,201 +231,199 @@ void RegPromotion::computeIN(BasicBlock* BB)
 			IN_BBVRMap[BB][v] = OUT_BBVRMap[BB][v] = unionSet;
 		}
 	}
-
-
 }
 
 //computes OUT of basic block, inserts stores, and replaces loads by copies
 void RegPromotion::computeOUT(BasicBlock* BB)
 {
-  Instruction *I;
-  Value* v;
-
-  //insert phi instructions
-  insertPhi(BB);
-
-  //iterate through instructions to compute OUT
-  for(BasicBlock::iterator j = BB->begin(); j != BB->end(); j++)
-  {
-	I = j;
-	//insert new stores 
-	for(set<pair<Value*, Instruction*> >::iterator si = StoresAdded.begin(); si != StoresAdded.end(); si++)
+	Instruction *I;
+	Value* v;
+	
+	//insert phi instructions
+	insertPhi(BB);
+	
+	//iterate through instructions to compute OUT
+	for(BasicBlock::iterator j = BB->begin(); j != BB->end(); j++)
 	{
-	  if(si->second == I)
-	  {
-		Value *v = *(OUT_BBVRMap[BB][si->first].begin());
-		if(!v)
-		  continue;
-		StoreInst *st = new StoreInst(v, si->first,I);//how does one decide alignment?
-		st->setAlignment(Alignment[v]);
-		NewInstructionsAdded.insert(st);
-		StoresAdded.erase(si);
-	  }
-	}
-
-	//new load: kill and gen
-	if(isa<LoadInst>(I) && NewInstructionsAdded.count(I))
-	{
-	  //kill
-	  OUT_BBVRMap[BB][I->getOperand(0)].clear();
-	  //gen
-	  OUT_BBVRMap[BB][I->getOperand(0)].insert(I);
-	}
-
-	//new store: replace
-	else if(isa<StoreInst>(I) && NewInstructionsAdded.count(I))
-	{
-	  //create new new store
-	  Value *v = *(OUT_BBVRMap[BB][I->getOperand(1)].begin());
-	  if(!v)
-		continue;
-	  StoreInst *st = new StoreInst(v, I->getOperand(1), I);
-	  NewInstructionsAdded.insert(st);
-	  j--;//points to new new store
-	  //delete old new store
-	  I->eraseFromParent();
-	}
-
-	//old store: kill and gen
-	else if(isa<StoreInst>(I) && deadStores.count(I))
-	{
-	  //kill
-	  OUT_BBVRMap[BB][I->getOperand(1)].clear();
-	  //gen
-	  OUT_BBVRMap[BB][I->getOperand(1)].insert(I->getOperand(0));
-	}
-
-	//old load:replace by copy
-	else if(isa<LoadInst>(I) && deadLoads.count(I))
-	{
-
-	  //replace all uses of previous register by new register
-	  v = *(OUT_BBVRMap[BB][I->getOperand(0)].begin());
-	  if(!v)
-		continue;
-
-	  if(ReplaceBy.count(I) == 0)
-	  {
-		//insert all uses of value
-		for(value_use_iterator<User> i = I->use_begin(); i != I->use_end(); i++)
+		I = j;
+		//insert new stores 
+		for(set<pair<Value*, Instruction*> >::iterator si = StoresAdded.begin(); si != StoresAdded.end(); si++)
 		{
-		  ReplaceBy[I].insert(*i);
+			if(si->second == I)
+			{
+				Value *v = *(OUT_BBVRMap[BB][si->first].begin());
+				if(!v)
+				  continue;
+				StoreInst *st = new StoreInst(v, si->first,I);
+				st->setAlignment(Alignment[v]);
+				NewInstructionsAdded.insert(st);
+				StoresAdded.erase(si);
+			}
 		}
-		Replace[I] = I;
-	  }
-	  for(set<User*>::iterator i = ReplaceBy[I].begin(); i != ReplaceBy[I].end(); i++)
-	  {
-		//replace all uses
-		(*i)->replaceUsesOfWith(Replace[I], v);
-		if(MemoryObjects.count( Replace[I] )!=0){
-		  MemoryObjects.erase( Replace[I] );
-		  MemoryObjects.insert(v);
-		  Value *temp;
-		  temp = *(OUT_BBVRMap[BB][Replace[I]].begin());
-		  OUT_BBVRMap[BB].erase(Replace[I]);
-		  OUT_BBVRMap[BB][v].insert(temp);
+	
+		//new load: kill and gen
+		if(isa<LoadInst>(I) && NewInstructionsAdded.count(I))
+		{
+		  //kill
+		  OUT_BBVRMap[BB][I->getOperand(0)].clear();
+		  //gen
+		  OUT_BBVRMap[BB][I->getOperand(0)].insert(I);
 		}
-
-	  }
-	  Replace[I] = v;
-
+	
+		//new store: replace
+		else if(isa<StoreInst>(I) && NewInstructionsAdded.count(I))
+		{
+		  //create new new store
+		  Value *v = *(OUT_BBVRMap[BB][I->getOperand(1)].begin());
+		  if(!v)
+			continue;
+		  StoreInst *st = new StoreInst(v, I->getOperand(1), I);
+		  NewInstructionsAdded.insert(st);
+		  j--;//points to new new store
+		  //delete old new store
+		  I->eraseFromParent();
+		}
+	
+		//old store: kill and gen
+		else if(isa<StoreInst>(I) && deadStores.count(I))
+		{
+			//kill
+			OUT_BBVRMap[BB][I->getOperand(1)].clear();
+			//gen
+			OUT_BBVRMap[BB][I->getOperand(1)].insert(I->getOperand(0));
+		}
+	
+		//old load:replace by copy
+		else if(isa<LoadInst>(I) && deadLoads.count(I))
+		{
+	
+		  //replace all uses of previous register by new register
+		  v = *(OUT_BBVRMap[BB][I->getOperand(0)].begin());
+		  if(!v)
+		      continue;
+	
+		  if(ReplaceBy.count(I) == 0)
+		  {
+				//insert all uses of value
+				for(value_use_iterator<User> i = I->use_begin(); i != I->use_end(); i++)
+				{
+				  ReplaceBy[I].insert(*i);
+				}
+				Replace[I] = I;
+		  }
+		  for(set<User*>::iterator i = ReplaceBy[I].begin(); i != ReplaceBy[I].end(); i++)
+		  {
+				//replace all uses
+				(*i)->replaceUsesOfWith(Replace[I], v);
+				if(MemoryObjects.count(Replace[I])!=0)
+				{
+				  MemoryObjects.erase(Replace[I]);
+				  MemoryObjects.insert(v);
+				  Value *temp;
+				  temp = *(OUT_BBVRMap[BB][Replace[I]].begin());
+				  OUT_BBVRMap[BB].erase(Replace[I]);
+				  OUT_BBVRMap[BB][v].insert(temp);
+				}
+		  }
+		  Replace[I] = v;
+		}
 	}
-  }
-
 }
 
 //replaces loads within the loop by copies, and much more...
 void RegPromotion::replaceLoadsByCopies(Loop* L)
 {
-  BasicBlock *BB;
-  bool change = true;
+	BasicBlock *BB;
+	bool change = true;
+	
+	//preheader
+	BB = L->getLoopPreheader();
+	computeIN(BB);
+	computeOUT(BB);
+	
+	while(change)
+	{
+		change = false;
+	
+		//scan all blocks
+		for(Loop::block_iterator i = L->block_begin(); i != L->block_end(); i++)
+		{
+			BB = *i;
+			computeIN(BB);
+	
+			if(Change[BB])
+			{
+				change = true;
+				computeOUT(BB);
+			}
+	
+		}
+  }
 
-  //preheader
-  BB = L->getLoopPreheader();
-  computeIN(BB);
-  computeOUT(BB);
-
-  while(change)
-  {
-	change = false;
-
-	//scan all blocks
-	for(Loop::block_iterator i = L->block_begin(); i != L->block_end(); i++)
+	//tail: insert stores
+	SmallVectorImpl<BasicBlock*> tailBlocks(0);
+	L->getUniqueExitBlocks(tailBlocks);
+	for(SmallVectorImpl<BasicBlock*>::iterator i = tailBlocks.begin(); i != tailBlocks.end(); i++)
 	{
 		BB = *i;
 		computeIN(BB);
-
-		if(Change[BB])
-		{
-			change = true;
-			computeOUT(BB);
-		}
-
+		computeOUT(BB);
 	}
-  }
-
-  //tail: insert stores
-  SmallVectorImpl<BasicBlock*> tailBlocks(0);
-  L->getUniqueExitBlocks(tailBlocks);
-  for(SmallVectorImpl<BasicBlock*>::iterator i = tailBlocks.begin(); i != tailBlocks.end(); i++)
-  {
-	BB = *i;
-	computeIN(BB);
-	computeOUT(BB);
-  }
 }
 
 //deletes dead loads from loop
 void RegPromotion::deleteDeadLoads()
 {
-  for(set<Instruction*>::iterator i = deadLoads.begin(); i != deadLoads.end(); i++)
-  {
-	(*i)->eraseFromParent();
-  }
-  NumLoadsHoisted += LoadsAdded.size();
+	for(set<Instruction*>::iterator i = deadLoads.begin(); i != deadLoads.end(); i++)
+	{
+		(*i)->eraseFromParent();
+	}
+	NumLoadsHoisted += LoadsAdded.size();
 }
 
 //deletes dead stores from loop
 void RegPromotion::deleteDeadStores()
 {
-  for(set<Instruction*>::iterator i = deadStores.begin(); i != deadStores.end(); i++)
-  {
-	(*i)->eraseFromParent();
-  }
+	for(set<Instruction*>::iterator i = deadStores.begin(); i != deadStores.end(); i++)
+	{
+		(*i)->eraseFromParent();
+	}
 }
 
 //clears all datastructures
 void RegPromotion::clear()
 {
-  IN_BBVRMap.clear();
-  OUT_BBVRMap.clear();
-  deadStores.clear();
-  deadLoads.clear();
-  LoadsAdded.clear();
-  StoresAdded.clear();
-  Replace.clear();
-  ReplaceBy.clear();
-  NewInstructionsAdded.clear();
-  NewPhiInstructionsAdded.clear();
-  ComesFrom.clear();
-  Change.clear();
+	IN_BBVRMap.clear();
+	OUT_BBVRMap.clear();
+	deadStores.clear();
+	deadLoads.clear();
+	LoadsAdded.clear();
+	StoresAdded.clear();
+	Replace.clear();
+	ReplaceBy.clear();
+	NewInstructionsAdded.clear();
+	NewPhiInstructionsAdded.clear();
+	ComesFrom.clear();
+	Change.clear();
 }
 
 //promotes loads and stores within a loop
 void RegPromotion::promoteInLoop(Loop* L)
 {
-  bool promotable = findLoadsAndStoresAdded(L);
-  if(promotable){
-	errs()<<"Pass executed\n";
-	insertLoads();
-	replaceLoadsByCopies(L);
-	deleteDeadLoads();
-	deleteDeadStores();
-	clear();
-  }
-  else{
-	errs()<<"Pass not executed\n";
-  }
+	bool promotable = findLoadsAndStoresAdded(L);
+	if(promotable)
+	{
+		errs()<<"Pass executed\n";
+		insertLoads();
+		replaceLoadsByCopies(L);
+		deleteDeadLoads();
+		deleteDeadStores();
+		clear();
+	}
+	else
+	{
+		errs()<<"Pass not executed\n";
+	}
 }
 
 //finds children of a loop
@@ -434,44 +440,48 @@ void RegPromotion::getSubLoops(Loop *L)
 //finds all top level loops
 void RegPromotion::promoteAllLoops()
 {
-  for(LoopInfo::iterator i = LI->begin(); i != LI->end(); i++)
-  {
-	getSubLoops(*i);
-  }
+	for(LoopInfo::iterator i = LI->begin(); i != LI->end(); i++)
+	{
+		getSubLoops(*i);
+  	}
 }
 
 void callMem2reg(Function &F,DominatorTree &DT)
 {
-  std::vector<AllocaInst*> Allocas;
-
-  BasicBlock &BB = F.getEntryBlock();  // Get the entry node for the function
-
-  while (1) {
-	Allocas.clear();
-
-	for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I)
-	  if (AllocaInst *AI = dyn_cast<AllocaInst>(I))       // Is it an alloca?
-		if (isAllocaPromotable(AI))
-		  Allocas.push_back(AI);
-
-	if (Allocas.empty()) break;
-
-	PromoteMemToReg(Allocas, DT);
-  }
+	std::vector<AllocaInst*> Allocas;
+	
+	BasicBlock &BB = F.getEntryBlock();  // Get the entry node for the function
+	
+	while (1)
+	{
+		Allocas.clear();
+	
+		for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I)
+		{
+		  if (AllocaInst *AI = dyn_cast<AllocaInst>(I))
+			{
+				if (isAllocaPromotable(AI))
+				  Allocas.push_back(AI);
+			}
+		}
+		if (Allocas.empty()) 
+			break;
+		PromoteMemToReg(Allocas, DT);
+	}
 }
 bool RegPromotion::runOnFunction(Function &F)
 {
-  LI = &getAnalysis<LoopInfo>();
-  DominatorTree &DT = getAnalysis<DominatorTree>();
-  callMem2reg(F,DT);
-  promoteAllLoops(); 
-  return true;
+	LI = &getAnalysis<LoopInfo>();
+	DominatorTree &DT = getAnalysis<DominatorTree>();
+	callMem2reg(F,DT);
+	promoteAllLoops(); 
+	return true;
 }
 
 void RegPromotion::getAnalysisUsage(AnalysisUsage &AU) const
 {
-  AU.setPreservesAll();
-  AU.addRequired<LoopInfo>();
-  AU.addRequired<DominatorTree>();
+	AU.setPreservesAll();
+	AU.addRequired<LoopInfo>();
+	AU.addRequired<DominatorTree>();
 }
 

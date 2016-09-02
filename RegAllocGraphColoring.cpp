@@ -37,8 +37,8 @@ GraphColorRegAlloc("color1", "graph coloring register allocator",
             createColorRegisterAllocator);
 
 namespace {
-   	map<unsigned, set<unsigned> > InterferenceGraph;
-   	map<unsigned, int> Degree;
+	map<unsigned, set<unsigned> > InterferenceGraph;
+	map<unsigned, int> Degree;
    	map<unsigned, bool> OnStack;
 	set<unsigned> Colored;
 	BitVector Allocatable;
@@ -124,8 +124,10 @@ void RegAllocGraphColoring::buildInterferenceGraph()
 		for (LiveIntervals::iterator jj = LI->begin(); jj != LI->end(); jj++) 
 		{
 			const LiveInterval *li2 = jj->second;
-			if(jj->first == ii->first) continue;
-			if(TRI->isPhysicalRegister(jj->first)) continue;
+			if(jj->first == ii->first)
+				continue;
+			if(TRI->isPhysicalRegister(jj->first))
+				continue;
 			if (li->overlaps(*li2)) 
 			{
 				if(!InterferenceGraph[ii->first].count(jj->first))
@@ -162,7 +164,8 @@ bool RegAllocGraphColoring::aliasCheck(unsigned preg, unsigned vreg)
 	while(*aliasItr != 0)
 	{
 		for(set<unsigned>::iterator ii = InterferenceGraph[vreg].begin( );
-				ii != InterferenceGraph[vreg].end( ); ii++){
+				ii != InterferenceGraph[vreg].end( ); ii++)
+		{
 			if(Colored.count( *ii ) && vrm->getPhys(*ii) == *aliasItr)
 				return false;
 		}
@@ -172,17 +175,21 @@ bool RegAllocGraphColoring::aliasCheck(unsigned preg, unsigned vreg)
 }
 
 //return the set of potential register for a virtual register
-set<unsigned> RegAllocGraphColoring::getSetofPotentialRegs(TargetRegisterClass trc,unsigned v_reg){
+set<unsigned> RegAllocGraphColoring::getSetofPotentialRegs(TargetRegisterClass trc,unsigned v_reg)
+{
 	TargetRegisterClass::iterator ii;
 	TargetRegisterClass::iterator ee;
 	unsigned p_reg = vrm->getRegAllocPref(v_reg);
-	if(p_reg != 0){
+	if(p_reg != 0)
+	{
 		PhysicalRegisters.insert( p_reg );
 	}
-	else{
+	else
+	{
 		ii = trc.allocation_order_begin(*MF);
 		ee = trc.allocation_order_end(*MF);
-		while(ii != ee){
+		while(ii != ee)
+		{
 			PhysicalRegisters.insert( *ii );
 			ii++;
 		}
@@ -193,15 +200,18 @@ set<unsigned> RegAllocGraphColoring::getSetofPotentialRegs(TargetRegisterClass t
 
 //returns the physical register to which the virtual register must be mapped. If there is no
 //physical register available this function returns 0.
-unsigned RegAllocGraphColoring::GetReg(set<unsigned> PotentialRegs, unsigned v_reg){
+unsigned RegAllocGraphColoring::GetReg(set<unsigned> PotentialRegs, unsigned v_reg)
+{
 	for(set<unsigned>::iterator ii = PotentialRegs.begin( ); ii != PotentialRegs.end( ); ii++)
 	{
-		if(!LI->hasInterval(*ii) || !LI->hasInterval(v_reg)){
+		if(!LI->hasInterval(*ii) || !LI->hasInterval(v_reg))
+		{
 			continue;
 		}
 		LiveInterval li1 = LI->getInterval(*ii);
 		LiveInterval li2 = LI->getInterval(v_reg);
-		if( aliasCheck(*ii,v_reg) && !li1.overlaps(li2)&& compatible_class(*MF,v_reg,*ii)){
+		if( aliasCheck(*ii,v_reg) && !li1.overlaps(li2)&& compatible_class(*MF,v_reg,*ii))
+		{
 			return *ii;
 		}
 	}
@@ -211,26 +221,31 @@ unsigned RegAllocGraphColoring::GetReg(set<unsigned> PotentialRegs, unsigned v_r
 // Adds a stack interval if the given live interval has been
 // spilled. Used to support stack slot coloring.
 void RegAllocGraphColoring::addStackInterval(const LiveInterval *spilled,
-                                    MachineRegisterInfo* mri) {
-  int stackSlot = vrm->getStackSlot(spilled->reg);
+                                    MachineRegisterInfo* mri)
+{
+	int stackSlot = vrm->getStackSlot(spilled->reg);
 
-  if (stackSlot == VirtRegMap::NO_STACK_SLOT) {
-    return;
-  }
+	if (stackSlot == VirtRegMap::NO_STACK_SLOT)
+	{
+		return;
+	}
 
-  const TargetRegisterClass *RC = mri->getRegClass(spilled->reg);
-  LiveInterval &stackInterval = lss->getOrCreateInterval(stackSlot, RC);
+	const TargetRegisterClass *RC = mri->getRegClass(spilled->reg);
+	LiveInterval &stackInterval = lss->getOrCreateInterval(stackSlot, RC);
 
-  VNInfo *vni;
-  if (stackInterval.getNumValNums() != 0) {
-    vni = stackInterval.getValNumInfo(0);
-  } else {
-    vni = stackInterval.getNextValue(
-      SlotIndex(), 0, lss->getVNInfoAllocator());
-  }
+	VNInfo *vni;
+	if (stackInterval.getNumValNums() != 0)
+	{
+		vni = stackInterval.getValNumInfo(0);
+	} 
+	else
+ 	{
+		vni = stackInterval.getNextValue(
+		SlotIndex(), 0, lss->getVNInfoAllocator());
+	}
 
-  LiveInterval &rhsInterval = LI->getInterval(spilled->reg);
-  stackInterval.MergeRangesInAsValue(rhsInterval, vni);
+	LiveInterval &rhsInterval = LI->getInterval(spilled->reg);
+	stackInterval.MergeRangesInAsValue(rhsInterval, vni);
 }
 
 //Spills virtual register
@@ -255,7 +270,8 @@ bool RegAllocGraphColoring::colorNode(unsigned v_reg)
 	const TargetRegisterClass *trc = MF->getRegInfo().getRegClass(v_reg);
 	set<unsigned> PotentialRegs = getSetofPotentialRegs(*trc,v_reg);
 	for(set<unsigned>::iterator ii = InterferenceGraph[v_reg].begin( ) ;
-			ii != InterferenceGraph[v_reg].end( ); ii++){
+			ii != InterferenceGraph[v_reg].end( ); ii++)
+	{
 		if(Colored.count( *ii ))
 			PotentialRegs.erase(vrm->getPhys(*ii));	
 		if(PotentialRegs.empty( ))
@@ -263,20 +279,24 @@ bool RegAllocGraphColoring::colorNode(unsigned v_reg)
 
 	}
 	//There are no Potential Physical Registers Available
-	if(PotentialRegs.empty( )){
+	if(PotentialRegs.empty( ))
+	{
 		notspilled = SpillIt(v_reg);
 		errs( )<<"\nVreg : "<<v_reg<<" ---> Spilled";
 	}
-	else{
+	else
+	{
 		//Get compatible Physical Register
 		p_reg = GetReg(PotentialRegs,v_reg);
 		assert(p_reg!=0 && "Assigning 0 reg");
 		//if no such register found due to interfernce with p_reg
-		if(!p_reg){
+		if(!p_reg)
+		{
 			notspilled = SpillIt(v_reg);
 			errs( )<<"\nVreg : "<<v_reg<<" ---> Spilled";
 		}
-		else{
+		else
+		{
 			//assigning virtual to physical register
 			vrm->assignVirt2Phys( v_reg , p_reg );
 			errs( )<<"\nVreg : "<<v_reg<<" ---> Preg :"<<TRI->getName(p_reg);
@@ -322,11 +342,13 @@ bool RegAllocGraphColoring::allocateRegisters()
 
 void RegAllocGraphColoring::dumpPass( ){
 	for (MachineFunction::iterator mbbItr = MF->begin(), mbbEnd = MF->end();
-			mbbItr != mbbEnd; ++mbbItr) {
+			mbbItr != mbbEnd; ++mbbItr) 
+	{
 		MachineBasicBlock &mbb = *mbbItr;
 		errs() << "bb" << mbb.getNumber() << ":\n";
 		for (MachineBasicBlock::iterator miItr = mbb.begin(), miEnd = mbb.end();
-				miItr != miEnd; ++miItr) {
+				miItr != miEnd; ++miItr) 
+		{
 			MachineInstr &mi = *miItr;
 			errs( )<<mi;
 		}
@@ -355,7 +377,8 @@ bool RegAllocGraphColoring::runOnMachineFunction(MachineFunction &mf)
 	errs()<<"Pass before allocation\n";
 	dumpPass();
 
-	do{
+	do
+	{
 		errs( )<<"\nRound #"<<round<<'\n';
 		round++;
 		vrm->clearAllVirt();
@@ -368,7 +391,7 @@ bool RegAllocGraphColoring::runOnMachineFunction(MachineFunction &mf)
 		Allocatable.clear();
 		PhysicalRegisters.clear();
 		errs( )<<*vrm;
-	}while(!another_round);
+	} while(!another_round);
 
 	rmf->renderMachineFunction( "After GraphColoring Register Allocator" , vrm );
 
