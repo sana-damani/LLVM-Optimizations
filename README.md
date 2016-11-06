@@ -12,6 +12,6 @@ Register promotion and allocation in LLVM (Completed: May 2012)
 
 * RegAllocGraphColoring.cpp: A graph coloring based register allocator for a comparative study against LLVM's greedy linear scan register allocation algorithm.
 
-For details, read wiki at https://github.com/sana-damani/LLVM-Optimizations.wiki.git.
+For details, read wiki at https://github.com/sana-damani/LLVM-Optimizations/wiki.
 
 
